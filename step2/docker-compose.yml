@@ -1,0 +1,80 @@
+version: "3.8"
+
+services:
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: es01
+    environment:
+      - node.name=es01
+      - cluster.name=es-docker
+      - discovery.type=single-node
+     
+      # Load password from Docker secret
+      - ELASTIC_PASSWORD_FILE=/run/secrets/elastic_password
+      # Alternatively, set password directly (not recommended for production)
+      #- ELASTIC_PASSWORD=changeme
+
+      # Enable security features but disable autoconfiguration
+      - xpack.security.enabled=true
+      - xpack.security.autoconfiguration.enabled=false
+
+      # HTTP layer TLS
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/es01/es01.key
+      - xpack.security.http.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+
+      # Transport layer TLS
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.security.transport.ssl.key=certs/es01/es01.key
+      - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+
+      - ES_JAVA_OPTS=-Xms1G -Xmx1G
+
+    ports:
+      - 9200:9200
+
+    volumes:
+      - esdata01:/usr/share/elasticsearch/data
+      - ./certs:/usr/share/elasticsearch/config/certs:ro
+
+    secrets:
+      - elastic_password
+
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+
+secrets:
+  elastic_password:
+    file: ./secrets/elastic_password.txt
+
+volumes:
+  esdata01:
+
+
+####################################
+# To generate the elastic password #
+####################################
+# cat /dev/urandom| tr -dc 'a-zA-Z0-9' | head -c 16; echo ''
+
+#####################################
+# To generate TSL certificates      #
+#####################################
+# mkdir -p certs
+# 
+# # 1) CA
+# docker run --rm -u 0 -v "$PWD/certs:/certs" \
+#   docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION} \
+#   bash -lc 'elasticsearch-certutil ca --silent --pem -out /certs/ca.zip && unzip -o /certs/ca.zip -d /certs && rm /certs/ca.zip'
+# 
+# # 2) Generate node cert (including localhost / 127.0.0.1)
+# docker run --rm -u 0 -v "$PWD/certs:/certs" \
+#   docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION} \
+#   bash -lc 'elasticsearch-certutil cert --silent --pem \
+#     --ca-cert /certs/ca/ca.crt --ca-key /certs/ca/ca.key \
+#     -name es01 -dns es01,localhost -ip 127.0.0.1 \
+#     -out /certs/es01.zip && unzip -o /certs/es01.zip -d /certs && rm /certs/es01.zip'
